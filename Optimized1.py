@@ -2,7 +2,7 @@ import pandas as pd
 import pyodbc
 from datetime import datetime
 import logging
-
+import sys
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,7 +19,7 @@ def get_portfolio_name(cursor, portfolio_id):
     result = cursor.fetchone()
     return result[0] if result else None
 
-
+wrong_portfolio_ids = []
 def adding_currently_working_rows(row, cursor):
     new_rows = []
     all_portfolio_ids = row.get("Add all the Portfolio IDs [separated by \",\"(commas)]", "")
@@ -41,6 +41,7 @@ def adding_currently_working_rows(row, cursor):
                 new_row['Portfolio Name'] = row.get('Portfolio Name', 'N/A')
                 adding_currently_working_rows.wrong_portfolio_id_counter +=1
                 print(f"Wrong Portfolio ID entered: {pid}, Using original Portfolio Name: {new_row['Portfolio Name']}")
+                wrong_portfolio_ids.append(pid)
                 logging.warning(f"Portfolio ID '{pid}' not found in IndexIdentifier")
             new_rows.append(new_row)
     else:
@@ -61,6 +62,7 @@ def adding_currently_working_rows(row, cursor):
                     row['Portfolio ID'] = f"Wrong Portfolio ID_{adding_currently_working_rows.wrong_portfolio_id_counter}"
                     row['Portfolio Name'] = row.get('Portfolio/Project Name', 'N/A')
                     adding_currently_working_rows.wrong_portfolio_id_counter +=1
+                    wrong_portfolio_ids.append(single_portfolio_id)
                     print(f"Wrong Portfolio ID entered: {single_portfolio_id}, Using original Portfolio Name: {row['Portfolio Name']}")
                 new_rows.append(row)
                 print(f"Added row for single Portfolio ID: {row['Portfolio ID']}, Portfolio Name: {row['Portfolio Name']}")
@@ -153,7 +155,7 @@ def upsert_data(cursor, df):
     return successful_upserts, failed_upserts
 
 def main():
-    file_path = r"C:\Users\avarsh1\OneDrive - MORNINGSTAR INC\Documents\Handover automation Project\Handover Info Final Form(Sheet1).csv"
+    file_path = r"C:\Users\avarsh1\OneDrive - MORNINGSTAR INC\Documents\Handover automation Project\Handover Form Final(Sheet1).csv"
     df = pd.read_csv(file_path,encoding='latin1')
     # df = pd.read_excel(r"C:\Users\pnandik\OneDrive - MORNINGSTAR INC\responseForm\Handover Form Final.xlsx")
     df['Start Date'] = pd.to_datetime(df['Start Date'], errors='coerce')
@@ -169,9 +171,19 @@ def main():
         new_rows = []
         for _, row in df.iterrows():
             new_rows.extend(adding_currently_working_rows(row, cursor))
+            print(row)
+            print(wrong_portfolio_ids)
 
     new_df = pd.DataFrame(new_rows)
+    
+    print(new_df)
     email_dict = dict(zip(new_df['Handing Over to'], new_df['Email (Person receiving the handover)']))
+    
+    if wrong_portfolio_ids:
+        print("The following portfolio IDs were not found and caused errors:")
+        for pid in wrong_portfolio_ids:
+            print(pid)
+        sys.exit("Exiting script due to wrong portfolio IDs.")
 
     # To add new currently working entries
     latest_entries = {}
@@ -206,6 +218,11 @@ def main():
 
     new_df = new_df.drop(["Add all the Portfolio IDs [separated by \",\"(commas)]"], axis=1)
     new_df['Portfolio Name'] = new_df['Portfolio Name'].apply(remove_suffixes)
+    
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    output_path = f"C:\\Users\\avarsh1\\OneDrive - MORNINGSTAR INC\\Documents\\Handover automation Project\\Updated_Handover_Info_{timestamp}.xlsx"
+    new_df.to_excel(output_path, index=False, engine='openpyxl')
+    logging.info(f"Excel file has been generated: {output_path}")
 
     with connect_to_database('idrschprddb6003', 'Playground') as conn:
         cursor = conn.cursor()
